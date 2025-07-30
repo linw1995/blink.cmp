@@ -40,6 +40,10 @@
           nvimFs =
             fs.difference ./. (fs.unions [ nixFs rustFs ./doc ./repro.lua ]);
           version = "1.6.0";
+          install-lib = ''
+              mkdir -p target/release
+              ln -s ${self'.packages.blink-fuzzy-lib}/lib/libblink_cmp_fuzzy.* target/release/
+            '';
         in {
           blink-fuzzy-lib = let
             inherit (inputs'.fenix.packages.minimal) toolchain;
@@ -66,11 +70,14 @@
               root = ./.;
               fileset = nvimFs;
             };
-            preInstall = ''
-              mkdir -p target/release
-              ln -s ${self'.packages.blink-fuzzy-lib}/lib/libblink_cmp_fuzzy.* target/release/
-            '';
+            preInstall = install-lib;
           };
+
+          install-lib = pkgs.writeShellApplication {
+              name = "install-blink-fuzzy-lib";
+              runtimeInputs = [ self'.packages.blink-fuzzy-lib ];
+              text = install-lib;
+            };
 
           default = self'.packages.blink-cmp;
         };
@@ -79,16 +86,7 @@
         # it builds the native module of the plugin
         apps.build-plugin = {
           type = "app";
-          program = let
-            buildScript = pkgs.writeShellApplication {
-              name = "build-plugin";
-              runtimeInputs = [ self'.packages.blink-fuzzy-lib ];
-              text = ''
-                mkdir -p target/release
-                cp ${self'.packages.blink-fuzzy-lib}/lib/libblink_cmp_fuzzy.* target/release/
-              '';
-            };
-          in (lib.getExe buildScript);
+          program = lib.getExe self'.packages.install-lib;
         };
 
         # define the default dev environment
