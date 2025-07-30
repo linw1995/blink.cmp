@@ -75,16 +75,17 @@
           default = self'.packages.blink-cmp;
         };
 
-        # builds the native module of the plugin
+        # use the package defined above
+        # it builds the native module of the plugin
         apps.build-plugin = {
           type = "app";
           program = let
             buildScript = pkgs.writeShellApplication {
               name = "build-plugin";
-              runtimeInputs = with pkgs; [ fenix.minimal.toolchain gcc ];
+              runtimeInputs = [ self'.packages.blink-fuzzy-lib ];
               text = ''
-                export LIBRARY_PATH="${lib.makeLibraryPath [ pkgs.libiconv ]}";
-                cargo build --release
+                mkdir -p target/release
+                cp ${self'.packages.blink-fuzzy-lib}/lib/libblink_cmp_fuzzy.* target/release/
               '';
             };
           in (lib.getExe buildScript);
