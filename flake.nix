@@ -40,9 +40,10 @@
           nvimFs =
             fs.difference ./. (fs.unions [ nixFs rustFs ./doc ./repro.lua ]);
           version = "1.6.0";
-          install-lib = ''
+          install-lib = action : ''
               mkdir -p target/release
-              ln -s ${self'.packages.blink-fuzzy-lib}/lib/libblink_cmp_fuzzy.* target/release/
+              find target/release -name 'libblink_cmp_fuzzy.*' -delete
+              ${action} ${self'.packages.blink-fuzzy-lib}/lib/libblink_cmp_fuzzy.* target/release/
             '';
         in {
           blink-fuzzy-lib = let
@@ -70,13 +71,13 @@
               root = ./.;
               fileset = nvimFs;
             };
-            preInstall = install-lib;
+            preInstall = install-lib "ln -s";
           };
 
           install-lib = pkgs.writeShellApplication {
               name = "install-blink-fuzzy-lib";
               runtimeInputs = [ self'.packages.blink-fuzzy-lib ];
-              text = install-lib;
+              text = install-lib "cp";
             };
 
           default = self'.packages.blink-cmp;
