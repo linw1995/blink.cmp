@@ -19,6 +19,7 @@ fuzzy = { implementation = "prefer_rust_with_warning" }
 
 If possible, it's highly recommended to use the Rust implementation of the fuzzy matcher!
 
+- Full unicode support
 - Always finds the best match (resulting in better sorting)
 - Performance on long lists (10k+ items)
 - Typo resistance
@@ -95,6 +96,22 @@ In the example above:
 - Entries are first sorted by score.
 - If two entries have the same score, they are then sorted by sort_text.
 - If still tied, they are sorted by label.
+
+#### Sort list function
+
+Instead of specifying a static list, you may also provide a function that returns a list of sorts.
+
+```lua
+fuzzy = {
+  sorts = function()
+    if vim.bo.filetype == "lua" then
+      return { 'score', 'label' }  -- Prioritize label sorting for Lua files
+    else
+      return { 'score', 'sort_text', 'label' }  -- Default sorting for other filetypes
+    end
+  end,
+}
+```
 
 #### Custom sorting
 

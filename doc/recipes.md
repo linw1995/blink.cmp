@@ -31,7 +31,7 @@ vim.b.completion = false
 
 ### Disable completion in *only* shell command mode
 
-When inside of git bash or WSL on windows, you may experience a hang with shell commands. The following disables cmdline completions only when running shell commands (i.e. `[':!' , ':%!']`), but still allows completion in other command modes (i.e. `[':' , ':help', '/' , '?', ...]`).
+When inside of git bash or WSL on windows, you may experience a hang with shell commands. The following disables cmdline completions only when running shell commands (e.g. `[':!' , ':%!']`), but still allows completion in other command modes (e.g. `[':' , ':help', '/' , '?']`).
 
 ```lua
 sources = {
@@ -42,6 +42,26 @@ sources = {
         return vim.fn.getcmdtype() ~= ':' or not vim.fn.getcmdline():match("^[%%0-9,'<>%-]*!")
       end
     }
+  }
+}
+```
+
+### Disable or delay auto-showing completion menu
+
+You may disable the auto-show behavior of the menu, or delay it by a given number of milliseconds, via the `completion.menu.auto_show` and `completion.menu.auto_show_delay_ms` options.
+
+```lua
+completion = {
+  menu = {
+    -- Disable automatically showing the menu while typing, instead press `<C-space>` (by default) to show it manually
+    auto_show = false,
+    -- or per filetype
+    auto_show = function(ctx, items) return vim.bo.filetype == 'markdown' end,
+
+    -- Delay before showing the completion menu while typing
+    auto_show_delay_ms = 500,
+    -- or per filetype
+    auto_show_delay_ms = function(ctx, items) return vim.bo.filetype == 'markdown' and 1000 or 0 end,
   }
 }
 ```
@@ -253,6 +273,102 @@ sources = {
 }
 ```
 
+## Sources
+
+[See the full docs](./configuration/sources.md)
+
+### Buffer completion from all open buffers
+
+The default behavior is to only show completions from **visible** "normal" buffers (e.g. it wouldn't include neo-tree). This will instead show completions from all buffers, even if they're not visible on screen. Note that the performance impact of this has not been tested.
+
+```lua
+sources = {
+  providers = {
+    buffer = {
+      opts = {
+        -- get all buffers, even ones like neo-tree
+        get_bufnrs = vim.api.nvim_list_bufs
+        -- or (recommended) filter to only "normal" buffers
+        get_bufnrs = function()
+          return vim.tbl_filter(function(bufnr)
+            return vim.bo[bufnr].buftype == ''
+          end, vim.api.nvim_list_bufs())
+        end
+      }
+    }
+  }
+}
+```
+
+### Dynamically picking providers by treesitter node/filetype
+
+```lua
+sources.default = function(ctx)
+  local success, node = pcall(vim.treesitter.get_node)
+  if success and node and vim.tbl_contains({ 'comment', 'line_comment', 'block_comment' }, node:type()) then
+    return { 'buffer' }
+  elseif vim.bo.filetype == 'lua' then
+    return { 'lsp', 'path' }
+  else
+    return { 'lsp', 'path', 'snippets', 'buffer' }
+  end
+end
+```
+
+### Hide snippets after trigger character
+
+Trigger characters are defined by the sources. For example, for Lua, the trigger characters are `.`, `"`, `'`.
+
+```lua
+sources.providers.snippets.should_show_items = function(ctx)
+  return ctx.trigger.initial_kind ~= 'trigger_character'
+end
+```
+
+### Set source kind icon and name
+
+```lua
+sources.providers.copilot.transform_items = function(ctx, items)
+  for _, item in ipairs(items) do
+    item.kind_icon = ''
+    item.kind_name = 'Copilot'
+  end
+  return items
+end
+```
+
+### Disable all snippets
+
+See the [relevant section in the snippets documentation](./configuration/snippets.md#disable-all-snippets)
+
+### Set minimum keyword length by filetype
+
+```lua
+sources.min_keyword_length = function()
+  return vim.bo.filetype == 'markdown' and 2 or 0
+end
+```
+
+### Path completion from `cwd` instead of current buffer's directory
+
+It's common to run code from the root of your repository, in which case relative paths will start from that directory. In that case, you may want path completions to be relative to your current working directory rather than the default, which is the current buffer's parent directory.
+
+```lua
+sources = {
+  providers = {
+    path = {
+      opts = {
+        get_cwd = function(_)
+          return vim.fn.getcwd()
+        end,
+      },
+    },
+  },
+},
+```
+
+This also makes it easy to `:cwd` to the desired base directory for path completion.
+
 ## Completion menu drawing
 
 [See the full docs](./configuration/completion.md#menu-draw)
@@ -355,101 +471,46 @@ completion = {
 }
 ```
 
-## Sources
+### `mini.icons` + `lspkind`
 
-[See the full docs](./configuration/sources.md)
-
-### Buffer completion from all open buffers
-
-The default behavior is to only show completions from **visible** "normal" buffers (i.e. it wouldn't include neo-tree). This will instead show completions from all buffers, even if they're not visible on screen. Note that the performance impact of this has not been tested.
+Uses [mini.icons](https://github.com/echasnovski/mini.icons) to display icons for filetypes and [lspkind](https://github.com/onsails/lspkind-nvim) for LSP kinds.
 
 ```lua
-sources = {
-  providers = {
-    buffer = {
-      opts = {
-        -- get all buffers, even ones like neo-tree
-        get_bufnrs = vim.api.nvim_list_bufs
-        -- or (recommended) filter to only "normal" buffers
-        get_bufnrs = function()
-          return vim.tbl_filter(function(bufnr)
-            return vim.bo[bufnr].buftype == ''
-          end, vim.api.nvim_list_bufs())
-        end
+completion = {
+  menu = {
+    draw = {
+      components = {
+        kind_icon = {
+          text = function(ctx)
+            if ctx.source_name ~= "Path" then
+              return require("lspkind").symbolic(ctx.kind, { mode = "symbol" }) .. ctx.icon_gap
+            end
+
+            local is_unknown_type = vim.tbl_contains({ "link", "socket", "fifo", "char", "block", "unknown" }, ctx.item.data.type)
+            local mini_icon, _ = require("mini.icons").get(
+              is_unknown_type and "os" or ctx.item.data.type,
+              is_unknown_type and "" or ctx.label
+            )
+
+            return (mini_icon or ctx.kind_icon) .. ctx.icon_gap
+          end,
+
+          highlight = function(ctx)
+            if ctx.source_name ~= "Path" then return ctx.kind_hl end
+
+            local is_unknown_type = vim.tbl_contains({ "link", "socket", "fifo", "char", "block", "unknown" }, ctx.item.data.type)
+            local mini_icon, mini_hl = require("mini.icons").get(
+              is_unknown_type and "os" or ctx.item.data.type,
+              is_unknown_type and "" or ctx.label
+            )
+            return mini_icon ~= nil and mini_hl or ctx.kind_hl
+          end,
+        }
       }
     }
   }
 }
 ```
-
-### Dynamically picking providers by treesitter node/filetype
-
-```lua
-sources.default = function(ctx)
-  local success, node = pcall(vim.treesitter.get_node)
-  if success and node and vim.tbl_contains({ 'comment', 'line_comment', 'block_comment' }, node:type()) then
-    return { 'buffer' }
-  elseif vim.bo.filetype == 'lua' then
-    return { 'lsp', 'path' }
-  else
-    return { 'lsp', 'path', 'snippets', 'buffer' }
-  end
-end
-```
-
-### Hide snippets after trigger character
-
-Trigger characters are defined by the sources. For example, for Lua, the trigger characters are `.`, `"`, `'`.
-
-```lua
-sources.providers.snippets.should_show_items = function(ctx)
-  return ctx.trigger.initial_kind ~= 'trigger_character'
-end
-```
-
-### Set source kind icon and name
-
-```lua
-sources.providers.copilot.transform_items = function(ctx, items)
-  for _, item in ipairs(items) do
-    item.kind_icon = ''
-    item.kind_name = 'Copilot'
-  end
-  return items
-end
-```
-
-### Disable all snippets
-
-See the [relevant section in the snippets documentation](./configuration/snippets.md#disable-all-snippets)
-
-### Set minimum keyword length by filetype
-
-```lua
-sources.min_keyword_length = function()
-  return vim.bo.filetype == 'markdown' and 2 or 0
-end
-```
-
-### Path completion from `cwd` instead of current buffer's directory
-
-It's common to run code from the root of your repository, in which case relative paths will start from that directory. In that case, you may want path completions to be relative to your current working directory rather than the default, which is the current buffer's parent directory.
-
-```lua
-sources = {
-  providers = {
-    path = {
-      opts = {
-        get_cwd = function(_)
-          return vim.fn.getcwd()
-        end,
-      },
-    },
-  },
-},
-```
-
-This also makes it easy to `:cwd` to the desired base directory for path completion.
 
 ## For writers
 

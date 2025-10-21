@@ -39,12 +39,12 @@
           # all that are not nix, nor rust, nor other ignored files
           nvimFs =
             fs.difference ./. (fs.unions [ nixFs rustFs ./doc ./repro.lua ]);
-          version = "1.6.0";
           install-lib = action : ''
               mkdir -p target/release
               find target/release -name 'libblink_cmp_fuzzy.*' -delete
               ${action} ${self'.packages.blink-fuzzy-lib}/lib/libblink_cmp_fuzzy.* target/release/
             '';
+          version = "1.7.0";
         in {
           blink-fuzzy-lib = let
             inherit (inputs'.fenix.packages.minimal) toolchain;

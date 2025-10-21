@@ -23,11 +23,10 @@ function cmp.setup(opts)
     if err then error(err) end
     require('blink.cmp.fuzzy').set_implementation(fuzzy_implementation)
 
-    -- setup highlights, keymap, completion, commands and signature help
+    -- setup highlights, keymap, completion, and signature help
     require('blink.cmp.highlights').setup()
     require('blink.cmp.keymap').setup()
     require('blink.cmp.completion').setup()
-    require('blink.cmp.commands').setup()
     if config.signature.enabled then require('blink.cmp.signature').setup() end
   end)
 end
@@ -63,7 +62,7 @@ function cmp.show(opts)
   if require('blink.cmp.completion.windows.menu').win:is_open() and not (opts and opts.providers) then return end
 
   vim.schedule(function()
-    require('blink.cmp.completion.windows.menu').auto_show = true
+    require('blink.cmp.completion.windows.menu').force_auto_show()
 
     -- HACK: because blink is event based, we don't have an easy way to know when the "show"
     -- event completes. So we wait for the list to trigger the show event and check if we're
@@ -174,7 +173,7 @@ function cmp.select_and_accept(opts)
   return true
 end
 
---- Accept the current completion item and feed an enter key to neovim (i.e. to execute the current command in cmdline mode)
+--- Accept the current completion item and feed an enter key to neovim (e.g. to execute the current command in cmdline mode)
 --- @param opts? blink.cmp.CompletionListSelectAndAcceptOpts
 function cmp.accept_and_enter(opts)
   return cmp.accept({
@@ -185,7 +184,7 @@ function cmp.accept_and_enter(opts)
   })
 end
 
---- Select the first completion item, if there's no selection, accept and feed an enter key to neovim (i.e. to execute the current command in cmdline mode)
+--- Select the first completion item, if there's no selection, accept and feed an enter key to neovim (e.g. to execute the current command in cmdline mode)
 --- @param opts? blink.cmp.CompletionListSelectAndAcceptOpts
 function cmp.select_accept_and_enter(opts)
   return cmp.select_and_accept({
@@ -199,8 +198,7 @@ end
 --- Select the previous completion item
 --- @param opts? blink.cmp.CompletionListSelectOpts
 function cmp.select_prev(opts)
-  local on_ghost_text = opts and opts.on_ghost_text
-  if not cmp.is_menu_visible() and (not on_ghost_text or not cmp.is_ghost_text_visible()) then return end
+  if not require('blink.cmp.completion.list').can_select(opts) then return end
   vim.schedule(function() require('blink.cmp.completion.list').select_prev(opts) end)
   return true
 end
@@ -208,8 +206,7 @@ end
 --- Select the next completion item
 --- @param opts? blink.cmp.CompletionListSelectOpts
 function cmp.select_next(opts)
-  local on_ghost_text = opts and opts.on_ghost_text
-  if not cmp.is_menu_visible() and (not on_ghost_text or not cmp.is_ghost_text_visible()) then return end
+  if not require('blink.cmp.completion.list').can_select(opts) then return end
   vim.schedule(function() require('blink.cmp.completion.list').select_next(opts) end)
   return true
 end
@@ -218,6 +215,8 @@ end
 --- This will trigger completions if none are available, unlike `select_next` which would fallback to the next keymap in this case.
 function cmp.insert_next()
   if not cmp.is_active() then return cmp.show_and_insert() end
+  if not require('blink.cmp.completion.list').can_select({ auto_insert = true }) then return end
+
   vim.schedule(function() require('blink.cmp.completion.list').select_next({ auto_insert = true }) end)
   return true
 end
@@ -226,6 +225,8 @@ end
 --- This will trigger completions if none are available, unlike `select_prev` which would fallback to the next keymap in this case.
 function cmp.insert_prev()
   if not cmp.is_active() then return cmp.show_and_insert() end
+  if not require('blink.cmp.completion.list').can_select({ auto_insert = true }) then return end
+
   vim.schedule(function() require('blink.cmp.completion.list').select_prev({ auto_insert = true }) end)
   return true
 end
@@ -367,15 +368,7 @@ function cmp.get_lsp_capabilities(override, include_nvim_defaults)
 end
 
 --- Add a new source provider at runtime
---- @deprecated Use `cmp.add_source_provider` instead
---- @param source_id string
---- @param source_config blink.cmp.SourceProviderConfig
-function cmp.add_provider(source_id, source_config)
-  vim.deprecate('cmp.add_provider', 'cmp.add_source_provider', 'v1.0.0', 'blink-cmp')
-  return cmp.add_source_provider(source_id, source_config)
-end
-
---- Add a new source provider at runtime
+--- Equivalent to adding the source via `sources.providers.<source_id> = <source_config>`
 --- @param source_id string
 --- @param source_config blink.cmp.SourceProviderConfig
 function cmp.add_source_provider(source_id, source_config)
@@ -387,7 +380,11 @@ function cmp.add_source_provider(source_id, source_config)
   config.sources.providers[source_id] = source_config
 end
 
---- Adds a source provider to the list of enable sources for a given filetype
+--- Adds a source provider to the list of enabled sources for a given filetype
+---
+--- Equivalent to adding the source via `sources.per_filetype.<filetype> = { <source_id>, inherit_defaults = true }`
+--- in the config, appending to the existing list.
+--- If the user already has a source defined for the filetype, `inherit_defaults` will default to `false`.
 --- @param filetype string
 --- @param source_id string
 function cmp.add_filetype_source(filetype, source_id)

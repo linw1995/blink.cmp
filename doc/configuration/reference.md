@@ -74,9 +74,9 @@ completion.trigger = {
 
   -- When true, will show the completion window after entering insert mode
   show_on_insert = false,
-  
+
   -- LSPs can indicate when to show the completion window via trigger characters
-  -- however, some LSPs (i.e. tsserver) return characters that would essentially
+  -- however, some LSPs (e.g. tsserver) return characters that would essentially
   -- always show the window. We block these by default.
   show_on_blocked_trigger_characters = { ' ', '\n', '\t' },
   -- You can also block per filetype with a function:
@@ -191,6 +191,8 @@ completion.menu = {
 
   -- Whether to automatically show the window when new completion items are available
   auto_show = true,
+  -- Delay before showing the completion menu
+  auto_show_delay_ms = 0,
 
   -- Screen coordinates of the command line
   cmdline_position = function()
@@ -406,18 +408,26 @@ fuzzy = {
 
   -- Frecency tracks the most recently/frequently used items and boosts the score of the item
   -- Note, this does not apply when using the Lua implementation.
-  use_frecency = true,
+  frecency = {
+    -- Whether to enable the frecency feature
+    enabled = true,
+    -- Location of the frecency database
+    path = vim.fn.stdpath('state') .. '/blink/cmp/frecency.dat',
+    -- UNSAFE!! When enabled, disables the lock and fsync when writing to the frecency database.
+    -- This should only be used on unsupported platforms (e.g. alpine, termux)
+    unsafe_no_lock = false,
+  },
+  use_frecency = true, -- deprecated alias for frecency.enabled, will be removed in v2.0
+  use_unsafe_no_lock = false, -- deprecated alias for frecency.unsafe_no_lock, will be removed in v2.0
 
   -- Proximity bonus boosts the score of items matching nearby words
   -- Note, this does not apply when using the Lua implementation.
   use_proximity = true,
 
-  -- UNSAFE!! When enabled, disables the lock and fsync when writing to the frecency database. This should only be used on unsupported platforms (i.e. alpine termux)
-  -- Note, this does not apply when using the Lua implementation.
-  use_unsafe_no_lock = false,
-
   -- Controls which sorts to use and in which order, falling back to the next sort if the first one returns nil
   -- You may pass a function instead of a string to customize the sorting
+  --
+  -- Optionally, set the table of sorts via a function instead: sorts = function() return { 'exact', 'score', 'sort_text' } end
   sorts = {
     -- (optionally) always prioritize exact matches
     -- 'exact',
@@ -516,7 +526,11 @@ sources.providers = {
     transform_items = nil, -- Function to transform the items before they're returned
     should_show_items = true, -- Whether or not to show the items
     max_items = nil, -- Maximum number of items to display in the menu
-    min_keyword_length = 0, -- Minimum number of characters in the keyword to trigger the provider
+    -- Minimum number of characters in the keyword to trigger the provider
+    -- May also be a function(ctx: blink.cmp.Context): number
+    -- To ignore this property when manually showing the menu, set it like:
+    -- min_keyword_length = function(ctx) return ctx.trigger.initial_kind == 'manual' and 0 or 1 end
+    min_keyword_length = 0, 
     -- If this provider returns 0 items, it will fallback to these providers.
     -- If multiple providers fallback to the same provider, all of the providers must return 0 items for it to fallback
     fallbacks = {},
@@ -548,12 +562,14 @@ sources.providers = {
       search_paths = { vim.fn.stdpath('config') .. '/snippets' },
       global_snippets = { 'all' },
       extended_filetypes = {},
-      ignored_filetypes = {},
+      filter_snippets = function(filetype, file) return true end,
       get_filetype = function(context)
         return vim.bo.filetype
       end,
       -- Set to '+' to use the system clipboard, or '"' to use the unnamed register
       clipboard_register = nil,
+      -- Whether to put the snippet description in the label description
+      use_label_description = false,
     }
 
     -- For `snippets.preset == 'luasnip'`
@@ -564,13 +580,20 @@ sources.providers = {
       show_autosnippets = true,
       -- Whether to prefer docTrig placeholders over trig when expanding regTrig snippets
       prefer_doc_trig = false,
+      -- Whether to put the snippet description in the label description
+      use_label_description = false,
     }
 
     -- For `snippets.preset == 'mini_snippets'`
     opts = {
       -- Whether to use a cache for completion items
       use_items_cache = true,
+      -- Whether to put the snippet description in the label description
+      use_label_description = false,
     }
+
+    -- For `snippets.preset == 'vsnip'`
+    opts = {}
   },
 
   buffer = {

@@ -2,56 +2,38 @@ local async = require('blink.cmp.lib.async')
 local uv = vim.uv
 local fs = {}
 
---- Scans a directory asynchronously in a loop until
---- it finds all entries
+--- Scans a directory asynchronously in chunks, calling a provided callback for each directory entry.
+--- The task resolves once all entries have been processed.
 --- @param path string
+--- @param callback fun(entries: table[]) Callback function called with an array (chunk) of directory entries
+--- @param chunk_size? integer Optional number of entries to read per chunk (default 200)
 --- @return blink.cmp.Task
-function fs.scan_dir_async(path)
-  local max_entries = 200
+function fs.scan_dir_async(path, callback, chunk_size)
+  chunk_size = chunk_size or 200
+
   return async.task.new(function(resolve, reject)
     uv.fs_opendir(path, function(err, handle)
-      if err ~= nil or handle == nil then return reject(err) end
-
-      local all_entries = {}
+      if err or not handle then return reject(err) end
 
       local function read_dir()
         uv.fs_readdir(handle, function(err, entries)
-          if err ~= nil or entries == nil then
+          if err or not entries then
             uv.fs_closedir(handle, function() end)
             return reject(err)
           end
 
-          vim.list_extend(all_entries, entries)
-          if #entries == max_entries then
+          callback(entries)
+
+          if #entries == chunk_size then
             read_dir()
           else
             uv.fs_closedir(handle, function() end)
-            resolve(all_entries)
+            resolve(true)
           end
         end)
       end
       read_dir()
-    end, max_entries)
-  end)
-end
-
---- @param entries { name: string, type: string }[]
---- @return blink.cmp.Task
-function fs.fs_stat_all(cwd, entries)
-  local tasks = {}
-  for _, entry in ipairs(entries) do
-    table.insert(
-      tasks,
-      async.task.new(function(resolve)
-        uv.fs_stat(cwd .. '/' .. entry.name, function(err, stat)
-          if err then return resolve(nil) end
-          resolve({ name = entry.name, type = entry.type, stat = stat })
-        end)
-      end)
-    )
-  end
-  return async.task.all(tasks):map(function(entries)
-    return vim.tbl_filter(function(entry) return entry ~= nil end, entries)
+    end, chunk_size)
   end)
 end
 

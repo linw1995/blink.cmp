@@ -20,7 +20,7 @@ end
 function fuzzy.init_db()
   if fuzzy.has_init_db then return end
 
-  fuzzy.implementation.init_db(vim.fn.stdpath('data') .. '/blink/cmp/fuzzy.db', config.use_unsafe_no_lock)
+  fuzzy.implementation.init_db(config.fuzzy.frecency.path, config.fuzzy.frecency.unsafe_no_lock)
 
   vim.api.nvim_create_autocmd('VimLeavePre', {
     callback = fuzzy.implementation.destroy_db,
@@ -31,7 +31,7 @@ end
 
 ---@param item blink.cmp.CompletionItem
 function fuzzy.access(item)
-  if fuzzy.implementation_type ~= 'rust' then return end
+  if fuzzy.implementation_type ~= 'rust' or not config.fuzzy.frecency.enabled then return end
 
   fuzzy.init_db()
 
@@ -47,12 +47,26 @@ function fuzzy.access(item)
   }
 
   -- writing to the db takes ~10ms, so schedule writes in another thread
+  local encode
+  if jit and package.preload['string.buffer'] then
+    encode = require('string.buffer').encode
+  else
+    encode = vim.mpack.encode
+  end
+
   vim.uv
     .new_work(function(itm, cpath)
+      local decode
+      if jit and package.preload['string.buffer'] then
+        decode = require('string.buffer').decode
+      else
+        decode = vim.mpack.decode
+      end
+
       package.cpath = cpath
-      require('blink.cmp.fuzzy.rust').access(require('string.buffer').decode(itm))
+      require('blink.cmp.fuzzy.rust').access(decode(itm))
     end, function() end)
-    :queue(require('string.buffer').encode(trimmed_item), package.cpath)
+    :queue(encode(trimmed_item), package.cpath)
 end
 
 ---@param lines string
@@ -72,7 +86,7 @@ end
 --- @param range blink.cmp.CompletionKeywordRange
 --- @return blink.cmp.CompletionItem[]
 function fuzzy.fuzzy(line, cursor_col, haystacks_by_provider, range)
-  fuzzy.init_db()
+  if config.fuzzy.frecency.enabled then fuzzy.init_db() end
 
   for provider_id, haystack in pairs(haystacks_by_provider) do
     -- set the provider items once since Lua <-> Rust takes the majority of the time
@@ -94,9 +108,12 @@ function fuzzy.fuzzy(line, cursor_col, haystacks_by_provider, range)
   local keyword_length = keyword_end_col - keyword_start_col
   local keyword = line:sub(keyword_start_col, keyword_end_col)
 
-  -- Sort in rust if none of the sort functions are lua functions
+  -- get sorts list if sorts is a function
+  local sorts_list = type(config.fuzzy.sorts) == 'function' and config.fuzzy.sorts() or config.fuzzy.sorts
+
+  -- sort in rust if none of the sort functions are lua functions
   local sort_in_rust = fuzzy.implementation_type == 'rust'
-    and #vim.tbl_filter(function(v) return type(v) ~= 'function' end, config.fuzzy.sorts) == #config.fuzzy.sorts
+    and #vim.tbl_filter(function(v) return type(v) ~= 'function' end, sorts_list) == #sorts_list
 
   local max_typos = type(config.fuzzy.max_typos) == 'function' and config.fuzzy.max_typos(keyword)
     or config.fuzzy.max_typos
@@ -106,12 +123,12 @@ function fuzzy.fuzzy(line, cursor_col, haystacks_by_provider, range)
   local provider_ids = vim.tbl_keys(haystacks_by_provider)
   local provider_idxs, matched_indices, scores, exacts = fuzzy.implementation.fuzzy(line, cursor_col, provider_ids, {
     max_typos = max_typos,
-    use_frecency = config.fuzzy.use_frecency and keyword_length > 0,
+    use_frecency = config.fuzzy.frecency.enabled and keyword_length > 0,
     use_proximity = config.fuzzy.use_proximity and keyword_length > 0,
     nearby_words = nearby_words,
     match_suffix = range == 'full',
     snippet_score_offset = config.snippets.score_offset,
-    sorts = sort_in_rust and config.fuzzy.sorts or nil,
+    sorts = sort_in_rust and sorts_list or nil,
   })
 
   -- add items to the final list
@@ -128,7 +145,7 @@ function fuzzy.fuzzy(line, cursor_col, haystacks_by_provider, range)
   end
 
   if sort_in_rust then return filtered_items end
-  return require('blink.cmp.fuzzy.sort').sort(filtered_items, config.fuzzy.sorts)
+  return require('blink.cmp.fuzzy.sort').sort(filtered_items, sorts_list)
 end
 
 --- @param line string

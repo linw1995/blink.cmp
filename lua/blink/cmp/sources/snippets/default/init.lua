@@ -6,10 +6,12 @@
 --- @field get_filetype? fun(context: blink.cmp.Context): string
 --- @field filter_snippets? fun(filetype: string, file: string): boolean
 --- @field clipboard_register? string
+--- @field use_label_description? boolean Whether to put the snippet description in the label description
 
 local snippets = {}
 
 function snippets.new(opts)
+  -- TODO: config validation
   --- @cast opts blink.cmp.SnippetsOpts
 
   local self = setmetatable({}, { __index = snippets })
@@ -17,6 +19,7 @@ function snippets.new(opts)
   self.cache = {}
   self.registry = require('blink.cmp.sources.snippets.default.registry').new(opts)
   self.get_filetype = opts.get_filetype or function() return vim.bo.filetype end
+
   return self
 end
 

@@ -19,6 +19,7 @@ local default_config = {
   extended_filetypes = {},
   --- @type string?
   clipboard_register = nil,
+  use_label_description = false,
 }
 
 --- @param config blink.cmp.SnippetsOpts
@@ -110,12 +111,16 @@ end
 --- @return blink.cmp.CompletionItem
 function registry:snippet_to_completion_item(snippet, cache_key)
   local body = type(snippet.body) == 'string' and snippet.body or table.concat(snippet.body, '\n')
+
+  ---@type blink.cmp.CompletionItem
   return {
     kind = require('blink.cmp.types').CompletionItemKind.Snippet,
     label = snippet.prefix,
     insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
     insertText = self:expand_vars(body, cache_key),
     description = snippet.description,
+    labelDetails = snippet.description and self.config.use_label_description and { description = snippet.description }
+      or nil,
   }
 end
 
@@ -142,13 +147,22 @@ function registry:expand_vars(snippet, cache_key)
     end
 
     if type == vim.lsp._snippet_grammar.NodeType.Variable then
+      local replacement
+
       if eager_vars[data.name] then
-        resolved_snippet = resolved_snippet:gsub('%$[{]?(' .. data.name .. ')[}]?', eager_vars[data.name])
+        replacement = eager_vars[data.name]
       elseif lazy_vars[data.name] then
-        local replacement = lazy_vars[data.name](cache_key, { clipboard_register = self.config.clipboard_register })
-        -- gsub otherwise fails with strings like `%20` in the replacement string
-        local escaped_for_gsub = replacement:gsub('%%', '%%%%')
-        resolved_snippet = resolved_snippet:gsub('%$[{]?(' .. data.name .. ')[}]?', escaped_for_gsub)
+        replacement = lazy_vars[data.name](cache_key, { clipboard_register = self.config.clipboard_register })
+      end
+
+      if replacement then
+        -- Escape % characters (otherwise fails with strings like `%20`)
+        local escaped = replacement:gsub('%%', '%%%%')
+
+        -- Handle both ${1:${TM_FILENAME}} and ${1:$TM_FILENAME} forms
+        resolved_snippet = resolved_snippet:gsub('%${' .. data.name .. '}', escaped)
+        resolved_snippet = resolved_snippet:gsub('%$' .. data.name .. '([^%w_])', escaped .. '%1')
+        resolved_snippet = resolved_snippet:gsub('%$' .. data.name .. '$', escaped)
       end
     end
   end
